@@ -1,0 +1,346 @@
+<!-- Graphics Example Code.  index.html - The web page document containing the canvas (drawing surface), that launches your javascript files.  By Garett //-->
+<!DOCTYPE html> <html> <head> <meta charset="UTF-8"/> <link rel="icon" href="assets/fav.ico">
+<script type="text/javascript" src="tinywebgl-ucla.js" ></script>  <!--  Javascript "include" files.  Any code in them gets executed as part of the page loading. //-->
+<script type="text/javascript" src="dependencies.js"   ></script>
+<script type="text/javascript"> "use strict"    
+  window.onload = function init()        // ********************* THE ENTRY POINT OF THE WHOLE PROGRAM STARTS HERE ********************* 
+    { window.contexts = {};                                                            // A global variable, "contexts".  Browsers support up to 16 WebGL contexts per page.
+      document.getElementById( "canvases" ).appendChild( Object.assign( document.createElement( "canvas" ), { id: "main_canvas", width: 800, height: 600 } ) );
+
+      const scenes  = [ "Butterfly_Scene", "Movement_Controls", "Global_Info_Table" ]; // Register some scenes to the "Canvas_Manager" object -- which WebGL calls
+                                                                                       // upon every time a draw / keyboard / mouse event happens.  
+                                                                                           
+      Code_Manager.display_code( eval( scenes[0] ) );                                  // Display the code for our demo on the page, starting with the first scene in the list.
+      for( let list of [ core_dependencies, all_dependencies ] )
+      document.querySelector( "#class_list" ).rows[2].appendChild( Object.assign( document.createElement( "td" ), { 
+        innerHTML: list.reduce( (acc, x) => acc += "<a href='javascript:void(0);' onclick='Code_Manager.display_code(" + x + ")'>" + x + "</a><br>", "" ) } ) );        
+      document.getElementsByName( "main_demo_link" )[0].innerHTML = "<a href='javascript:void(0);' onclick='Code_Manager.display_code(" + scenes[0] + ")'>" + scenes[0] + "</a><br>";
+      document.querySelector("#code_display").innerHTML = "Below is the code for the demo that's running:<br>&nbsp;<br>" + document.querySelector("#code_display").innerHTML;
+      
+      contexts[ "main_canvas" ] = new Canvas_Manager( "main_canvas", Color.of( 0,0,0,1 ), scenes );   // Manage the WebGL canvas.  Second parameter sets background color.
+      for( let c in contexts ) contexts[ c ].render();     // Call render() for each WebGL context on this page.  Then render() will re-queue itself for more calls.
+    }
+
+// Below is the demo you will see when you run the program!   
+    
+class Butterfly_Scene extends Scene_Component  // Code your butterfly assignment below.  It is an example of drawing a hierarchical object using a "model_transform" matrix.
+{ constructor( context )
+    { super( context );
+      var shapes = { "box" :   new Cube(),                            // Load one of each of these shape definitions onto the GPU.  Once each Shape is there we 
+                     "ball":   new Subdivision_Sphere( 4 ) };         // re-use it many times per display() call to get multiple of that shape to appear in the scene.
+      this.submit_shapes( context, shapes );
+                                                                      // Define the global camera and projection matrices.  
+                                                                      // Arguments to perspective() are field of view, aspect ratio, near plane and far plane.
+      Object.assign( context.globals.graphics_state, { camera_transform: Mat4.translation([ 0,-10,-40 ]), projection_transform: Mat4.perspective( Math.PI/4, context.width/context.height, .1, 1000 ) } );
+      
+      Object.assign( this, { hover: false, t: 0,                  // Define a couple of data members of a Butterfly_Scene.
+                             yellow: context.get_instance( Phong_Model ).material( Color.of( .8, .8, .3,  1 ), .2, 1, .7, 40 ),  // Call material() on the Phong_Shader,
+                             brown:  context.get_instance( Phong_Model ).material( Color.of( .3, .3, .1,  1 ), .2, 1,  1, 40 ),  // which returns a special-made "material" 
+                             red:    context.get_instance( Phong_Model ).material( Color.of(  1,  0,  0, .9 ), .1, .7, 1, 40 ),  // (a JavaScript object)
+                             green:  context.get_instance( Phong_Model ).material( Color.of(  0, .5,  0,  1 ), .1, .7, 1, 40 ),
+                             blue:   context.get_instance( Phong_Model ).material( Color.of(  0,  0,  1, .8 ), .1, .7, 1, 40 ),
+                             silver: context.get_instance( Phong_Model ).material( Color.of( .8, .8, .8,  1 ),  0,  1, 1, 40 ) } );
+    }
+  make_control_panel()                                                              // Draw the buttons, setup their actions and keyboard shortcuts, and monitor live variables.
+    { const globals = this.globals;
+      this.live_string( () => { return "Butterfly rotation angle: " + ( this.hover ? 0 : ( this.t % (2*Math.PI)).toFixed(2) ) + " radians" } );  this.new_line();
+      this.key_triggered_button( "Hover in place", "h", function() { this.hover ^= 1; } ); this.new_line();      
+    }  
+  draw_arm( graphics_state, model_transform )
+    { const arm = model_transform.times( Mat4.translation([ 0,0,3+1 ]) );
+      this.shapes.ball.draw( graphics_state, arm, this.blue );
+    }
+  translate(x, y, z) {
+    return Mat4.translation(Vec.of(x, y, z));
+  }
+  scale(x, y, z) {
+    return Mat4.scale(Vec.of(x, y, z));
+  }
+  rotate(angle, x, y, z) {
+    return Mat4.rotation(angle, Vec.of(x, y, z));
+  }
+  drawThorax(model_transform, graphics_state, options) {
+    let return_matrix;
+
+    model_transform = model_transform
+                        .times(this.translate(0,options.hover_height,0))
+
+    if (options.fly_in_circle) {
+      model_transform = model_transform
+                          .times(this.rotate(180 * (options.time / 3 % 180) * Math.PI / 180, 0,1,0))
+                          .times(this.translate(0, 0, options.fleight_radius));
+    }
+
+    return_matrix = model_transform;
+    model_transform = model_transform.times(this.scale(options.thorax_length,1,1));
+    this.shapes.box.draw(graphics_state, model_transform, options.color);
+    return return_matrix;
+  }
+  drawHead(model_transform, graphics_state, options) {
+    let return_matrix;
+
+    model_transform = model_transform.times(this.translate(options.thorax_length + options.head_radius,0,0));
+    return_matrix = model_transform;
+    model_transform = model_transform.times(this.scale(options.head_radius,options.head_radius,options.head_radius));
+    this.shapes.ball.draw(graphics_state, model_transform, options.color);
+
+    return return_matrix;
+  }
+  drawAbdomen(model_transform, graphics_state, options) {
+    let return_matrix;
+
+    model_transform = model_transform.times(this.translate(-(options.thorax_length + 3),0,0));
+    return_matrix = model_transform;
+    model_transform = model_transform.times(this.scale(3,1,1));
+
+    this.shapes.ball.draw(graphics_state, model_transform, options.color);
+
+    return return_matrix;
+  }
+  drawWing(model_transform, graphics_state, options) {
+    model_transform = model_transform
+                        .times(this.scale(options.orientation[0],1,options.orientation[1]))
+                        .times(this.translate(0, options.thorax_height, options.thorax_height))
+                        .times(this.rotate(45 * Math.sin(options.time * options.wing_speed) * Math.PI / 180, 1,0,0))
+                        .times(this.translate(0,options.wing_height,0))
+                        .times(this.scale(options.wing_length, options.wing_height, options.wing_length))
+                        .times(this.translate(Math.sqrt(2),0, Math.sqrt(2)))
+                        .times(this.scale(1/options.wing_length, 1/options.wing_height, 1/options.wing_length))
+                        .times(this.rotate(45 * Math.PI / 180, 0,1,0))
+                        .times(this.scale(options.wing_length, options.wing_height, options.wing_length))
+                        
+    this.shapes.box.draw(graphics_state, model_transform, options.color);
+  }
+  drawLeg(model_transform, graphics_state, options) {
+    const offsetX = options.thorax_length-options.leg_thickness;
+    const offsetY = options.thorax_height+options.leg_segment_length
+    const offsetZ = options.thorax_height+options.leg_thickness;
+
+    const optionOffsetX = options.offset * options.leg_offset;
+
+    model_transform = model_transform
+                        .times(this.scale(1,1, options.scale))
+                        .times(this.translate(options.thorax_length-optionOffsetX,-options.thorax_height,options.thorax_height))
+                        .times(this.rotate(-options.upper_leg_angle * Math.PI / 180, 1,0,0))
+                        .times(this.rotate(10 * Math.sin(options.time * options.leg_speed) * Math.PI / 180, 1,0,0))
+                        .times(this.translate(-options.leg_thickness, -options.leg_segment_length, options.leg_thickness))
+                        .times(this.scale(options.leg_thickness,options.leg_segment_length,options.leg_thickness));
+
+    this.shapes.box.draw(graphics_state, model_transform, options.upper_leg_color);
+
+    model_transform = model_transform
+                        .times(this.translate(0,-1,-1))
+                        .times(this.scale(1/options.leg_thickness,1/options.leg_segment_length,1/options.leg_thickness))
+                        .times(this.rotate(options.lower_leg_angle * (Math.sin(options.time * options.leg_speed) + 1) * Math.PI / 180, 1,0,0))
+                        .times(this.scale(options.leg_thickness,options.leg_segment_length,options.leg_thickness))
+                        .times(this.translate(0,-1,1));
+
+    this.shapes.box.draw(graphics_state, model_transform, options.lower_leg_color);
+
+  }
+  getSubAntennaTransform(model_transform, graphics_state, options) {
+    return model_transform
+                        .times(this.translate(1,-1,0))
+                        .times(this.scale(1/options.antennae_length, 1/options.antennae_thickness, 1/options.antennae_thickness))
+                        .times(this.rotate(-options.antennae_bend * (1 + Math.sin(options.time * options.antennae_speed)) * Math.PI / 180, 0, 0, 1))
+                        .times(this.scale(options.antennae_length, options.antennae_thickness, options.antennae_thickness))
+                        .times(this.translate(1,1,0))
+  }
+  drawAntenna(model_transform, graphics_state, options) {
+
+    // draw base antennae segment
+    model_transform = model_transform
+                        .times(this.scale(1,1,options.scale))
+                        .times(this.rotate(40 * Math.PI / 180, 0,1,2))
+                        .times(this.translate(options.head_radius, 0, 0))
+                        .times(this.scale(options.antennae_length, options.antennae_thickness, options.antennae_thickness))
+                        .times(this.translate(1,0,0))
+
+    this.shapes.box.draw(graphics_state, model_transform, options.color);
+
+    // draw rest of antennae segments
+    for (let i = 0; i < options.num_antennae_segments - 1; i++) {
+      model_transform = this.getSubAntennaTransform(model_transform, graphics_state, options);
+      this.shapes.box.draw(graphics_state, model_transform, options.color);
+    }
+
+    model_transform = model_transform
+                        .times(this.translate(1,0,0))
+                        .times(this.scale(1/options.antennae_length, 1/options.antennae_thickness, 1/options.antennae_thickness))
+                        .times(this.translate(options.tip_radius, 0, 0))
+                        .times(this.scale(options.tip_radius, options.tip_radius, options.tip_radius));
+
+    this.shapes.ball.draw(graphics_state, model_transform, options.tip_color);
+
+  }
+  display( graphics_state )
+    { graphics_state.lights = [ new Light( Vec.of(  30, 30,  34, 1 ), Color.of( 0, .4, 0, 1 ), 100000 ),         // Lights for Phong_Shader to use
+                                new Light( Vec.of( -10, 20, -14, 0 ), Color.of( 1, 1, .3, 1 ), 100    ) ]
+
+                                
+                                
+      /**********************************
+      Start coding down here!!!!
+      **********************************/                                     // From here on down it's just some example shapes drawn 
+                                                                              // for you -- freely replace them with your own!                          
+                                
+
+      this.t = graphics_state.animation_time/1000;
+
+      let model_transform = Mat4.identity(); 
+      let matrix_stack = [];
+
+      // ground
+      this.shapes.box.draw(graphics_state, Mat4.scale([15,.1,15]), this.green); 
+
+      /****************************************************************************************************
+       * Part (c) - Draw thorax, head, abdomen
+       ***************************************************************************************************/
+
+
+      const thorax_length = 5;
+      const thorax_height = 1;
+      const hover_height = 12;
+      const fleight_radius = 10;
+
+      let thorax_model_transform = this.drawThorax(model_transform, graphics_state, {
+        thorax_length,
+        thorax_height,
+        color: this.yellow,
+        time: this.t,
+        hover_height,
+         /****************************************************************************************************
+         * Part (h) - make butterfly fly in a circle
+         ***************************************************************************************************/  
+        fly_in_circle: !this.hover,
+        fleight_radius
+      });
+
+      const head_radius = 2.5;
+
+      let head_model_transform = this.drawHead(thorax_model_transform, graphics_state, {
+        thorax_length,
+        head_radius,
+        color: this.red
+      });
+
+      let abdomen_model_transform = this.drawAbdomen(thorax_model_transform, graphics_state, {
+        thorax_length,
+        color: this.yellow
+      });
+
+      /****************************************************************************************************
+       * Part (d) - Draw flapping wings
+       ***************************************************************************************************/
+
+      const wing_length = Math.sqrt(thorax_length * thorax_length / 2);
+      const wing_height = 0.1;
+      const wing_color = this.blue;
+      const wing_speed = 4;
+
+      let possibilities = [[1,1], [1,-1], [-1,1], [-1,-1]];
+
+      for (let orientation of possibilities) {
+        this.drawWing(thorax_model_transform, graphics_state, {
+          time: this.t,
+          orientation,
+          wing_length,
+          wing_height,
+          wing_speed,
+          thorax_length,
+          thorax_height,
+          color: wing_color
+        });
+      }
+
+      /****************************************************************************************************
+       * Part (e) - Draw legs that open and close
+       ***************************************************************************************************/
+
+      const upper_leg_color = this.silver;
+      const upper_leg_angle = 20;
+      const lower_leg_angle = 10;
+      const lower_leg_color = this.blue;
+
+      const leg_segment_length = 1;
+      const leg_thickness = 0.4;
+      const leg_offset = 2.5;
+
+      const leg_speed = 4;
+
+      let legOptions = [[0,1], [1,1], [2,1], [0,-1], [1,-1], [2,-1]];
+
+      for (let option of legOptions) {
+        this.drawLeg(thorax_model_transform, graphics_state, {
+          time: this.t,
+          leg_thickness,
+          leg_segment_length,
+          leg_offset,
+          thorax_length,
+          thorax_height,
+          upper_leg_color,
+          lower_leg_color,
+          upper_leg_angle,
+          lower_leg_angle,
+          leg_speed,
+          offset: option[0],
+          scale: option[1]
+        });
+      }
+
+      /****************************************************************************************************
+       * Part (f) - Draw two antennae flexing under weight of tips
+       * Part (g) - Iteratively draw segments: see helper function `getSubAntennaTransform`
+       ***************************************************************************************************/
+
+      const antennae_color = this.silver;
+      const antennae_thickness = 0.08;
+      const antennae_length = 0.2;
+      const antennae_bend = 5;
+      const num_antennae_segments = 9;
+
+      const tip_color = this.yellow;
+      const tip_radius = 0.5;
+
+      const antennae_speed = 4;
+
+      for (let option of [1, -1]) {
+        this.drawAntenna(head_model_transform, graphics_state, {
+          time: this.t,
+          head_radius,
+          antennae_thickness,
+          antennae_length,
+          antennae_bend,
+          num_antennae_segments,
+          color: antennae_color,
+          tip_color,
+          antennae_speed,
+          tip_radius,
+          scale: option
+        });
+      }
+      
+
+    }    
+}
+</script>
+<style>
+  table { border-collapse: collapse; display:block; overflow-x: auto; }
+  table, th, td { border: 2px solid black; vertical-align: top; white-space: nowrap }
+  th, td { overflow: hidden;  }
+  button { position: relative; background-color: #4C9F50; color: white; padding: 6px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); transition: background-color .3s, transform .3s }
+  button:hover, button:focus { transform: scale(1.2); color:gold }
+  .dropdown { display:inline-block }
+  .dropdown-content { display: none; position: absolute; background-color: #f9f9f9; min-width: 100px; overflow: auto; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2) }
+  .dropdown-content a { color: black; padding: 4px 4px; display: block }
+  .dropdown a:hover { background-color: #f1f1f1 }
+  .show { display:inline-block }
+</style>
+</head><body>
+<div id="canvases"></div>
+<table id="control_buttons" class="dropdown" style="display:block; width: 70%;  border: 0px; margin: 0 0 50px 0"><tr></tr></table>
+<div id="code_display" style="font-family: monospace; white-space: pre; margin: 50px 0" ></div>
+<table id="class_list" class="dropdown" style="display:block; border: 0px; border-spacing: 10px " >
+<tr><td colspan=2>Click below to navigate through all classes that are defined. <br>&nbsp;<br>Main demo: <span name="main_demo_link"></span></td></tr>
+<tr style="text-align:center"><td>tinywebgl-ucla.js</td><td>dependencies.js</td></tr><tr></tr></table>
+</body></html>
